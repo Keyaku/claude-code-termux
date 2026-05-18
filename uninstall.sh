@@ -13,13 +13,20 @@ ok()    { printf '%s\n' "${GREEN}==>${NC} $*"; }
 warn()  { printf '%s\n' "${RED}!!${NC} $*" >&2; }
 die()   { warn "$*"; exit 1; }
 
+if [ -r /dev/tty ]; then
+    exec 3</dev/tty
+else
+    die "No TTY available for prompts. Re-run by saving the script and executing it directly, e.g.:
+    curl -fsSL <url>/uninstall.sh -o /tmp/uninstall.sh && bash /tmp/uninstall.sh"
+fi
+
 confirm() {
     # confirm "Prompt text" [default-y|default-n]
     local prompt="$1" default="${2:-default-n}" reply
     local hint="[y/N]"
     [ "$default" = "default-y" ] && hint="[Y/n]"
-    printf '%s %s ' "${YELLOW}?${NC} $prompt" "$hint"
-    read -r reply || reply=""
+    printf '%s %s ' "${YELLOW}?${NC} $prompt" "$hint" >/dev/tty
+    IFS= read -r reply <&3 || reply=""
     if [ -z "$reply" ]; then
         [ "$default" = "default-y" ]
         return $?
