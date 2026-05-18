@@ -107,7 +107,7 @@ else
 	printf 'Done (already up to date).\n'
 fi
 
-exec glibc-runner "$BINARY_PATH" "$@"
+glibc-runner "$BINARY_PATH" "$@"
 EOF
 chmod +x "$WRAPPER"
 
