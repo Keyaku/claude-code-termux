@@ -1,85 +1,115 @@
-YELLOW='\033[1;33m'
-BLUE='\033[1;34m'
-RED='\033[0;31m'
-NC='\033[0m'
+#!/usr/bin/env bash
 
-set -e
+set -eu
 
-echo -e "${YELLOW}Installing required packages.${NC}"
-sleep 2
-pkg update -y
-pkg install glibc-repo -y
-pkg install glibc-runner -y
-pkg install nodejs-lts -y
+YELLOW=$'\033[1;33m'
+BLUE=$'\033[1;34m'
+GREEN=$'\033[1;32m'
+RED=$'\033[0;31m'
+DIM=$'\033[2m'
+NC=$'\033[0m'
 
-echo -e "${YELLOW}Installing ${BLUE}claude${YELLOW} with npm.${NC}"
-sleep 2
-npm install -g @anthropic-ai/claude-code --force || echo -e "${RED}Could not install claude-code from npm. Check your internet connection, or update npm packages.${NC}"
+info()  { printf '%s\n' "${YELLOW}==>${NC} $*"; }
+ok()    { printf '%s\n' "${GREEN}==>${NC} $*"; }
+warn()  { printf '%s\n' "${RED}!!${NC} $*" >&2; }
+die()   { warn "$*"; exit 1; }
 
+# --- Sanity: Termux environment ---
+[ -n "${TERMUX__PREFIX:-}" ] || die "TERMUX__PREFIX is not set. This script must run inside Termux."
+[ -d "$TERMUX__PREFIX/bin" ] || die "TERMUX__PREFIX ($TERMUX__PREFIX) does not look like a valid Termux prefix."
+command -v pkg >/dev/null 2>&1 || die "pkg not found. This script requires Termux."
 
-echo -e "${YELLOW}Installing native binary for ${BLUE}claude${YELLOW}.${NC}"
-sleep 2
-URL=$(npm view @anthropic-ai/claude-code-linux-arm64 dist.tarball)
+# --- Step 1: required packages ---
+info "Checking required Termux packages."
+REQUIRED_PKGS="glibc-repo glibc-runner npm curl tar"
+MISSING=""
+for p in $REQUIRED_PKGS; do
+    if ! dpkg -s "$p" >/dev/null 2>&1; then
+        MISSING="$MISSING $p"
+    fi
+done
 
-if [ -z "$URL" ]; then
-    echo "${RED}Error: Cannot get URL. Check your internet connection.${NC}"
-    exit 1
+if [ -n "$MISSING" ]; then
+    info "Installing missing packages:${BLUE}${MISSING}${NC}"
+    pkg update -y
+    # shellcheck disable=SC2086
+    pkg install -y $MISSING
+else
+    ok "All required packages already installed."
 fi
 
-echo "Installing: $URL"
-wget -q --show-progress "$URL" || echo -e "${RED}Could not download native binary for claude code. Check your internet connection.${NC}"
+# --- Step 2: install @anthropic-ai/claude-code from npm ---
+info "Installing ${BLUE}@anthropic-ai/claude-code${NC} via npm."
+npm -g i @anthropic-ai/claude-code --force \
+    || die "Could not install claude-code from npm. Check your internet connection."
 
-mkdir -p /data/data/com.termux/files/usr/lib/node_modules/@anthropic-ai/claude-code-linux-arm64
+# --- Step 3: fetch native arm64 binary ---
+info "Resolving native binary tarball URL."
+URL=$(npm view @anthropic-ai/claude-code-linux-arm64 dist.tarball)
+[ -n "$URL" ] || die "Could not resolve tarball URL. Check your internet connection."
 
-tar -xvzf claude-code-linux-arm64-*.tgz -C /data/data/com.termux/files/usr/lib/node_modules/@anthropic-ai/claude-code-linux-arm64 --strip-components=1 
+NPM_ROOT="$(npm -g root)"
+[ -n "$NPM_ROOT" ] && [ -d "$NPM_ROOT" ] || die "Invalid npm global root: '${NPM_ROOT}'."
 
-rm claude-code-linux-arm64-*.tgz
+INSTALL_DIR="$NPM_ROOT/@anthropic-ai/claude-code-linux-arm64"
+TMPDIR="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR"' EXIT
 
-cat << 'EOF' > $PREFIX/bin/claude
-#!/bin/bash
+info "Downloading ${DIM}${URL}${NC}"
+curl -fSL --progress-bar "$URL" -o "$TMPDIR/claude-native.tgz" \
+    || die "Could not download native binary. Check your internet connection."
+
+info "Extracting to ${BLUE}${INSTALL_DIR}${NC}"
+mkdir -p "$INSTALL_DIR"
+tar -xzf "$TMPDIR/claude-native.tgz" -C "$INSTALL_DIR" --strip-components=1
+
+# --- Step 4: write wrapper ---
+WRAPPER="$TERMUX__PREFIX/bin/claude"
+info "Writing wrapper script: ${BLUE}${WRAPPER}${NC}"
+cat > "$WRAPPER" << 'EOF'
+#!/usr/bin/env bash
+
+set -eu
 
 PACKAGE="@anthropic-ai/claude-code-linux-arm64"
-INSTALL_DIR="/data/data/com.termux/files/usr/lib/node_modules/$PACKAGE"
+NPM_ROOT="$(npm -g root)"
+[ -n "$NPM_ROOT" ] && [ -d "$NPM_ROOT" ] || { printf 'Invalid npm global root.\n' >&2; exit 1; }
+
+INSTALL_DIR="$NPM_ROOT/$PACKAGE"
 PACKAGE_JSON="$INSTALL_DIR/package.json"
 BINARY_PATH="$INSTALL_DIR/claude"
 
-# 1. Güncelleme Kontrolü
 if [ ! -f "$BINARY_PATH" ]; then
-    echo "Claude binary not found at $BINARY_PATH"
-    echo "Please reinstall it."
+    printf 'Claude binary not found at %s\nPlease reinstall.\n' "$BINARY_PATH" >&2
     exit 1
 fi
-echo -n "Checking for updates... "
-LATEST_VERSION=$(npm view $PACKAGE version 2>/dev/null)
+[ -x "$BINARY_PATH" ] || chmod ug+x "$BINARY_PATH"
 
+printf 'Checking for updates... '
+LATEST_VERSION=$(npm view "$PACKAGE" version 2>/dev/null || true)
 if [ -f "$PACKAGE_JSON" ]; then
     INSTALLED_VERSION=$(grep '"version":' "$PACKAGE_JSON" | cut -d'"' -f4)
 else
-    INSTALLED_VERSION="none"
+    INSTALLED_VERSION=""
 fi
 
-if [ "$LATEST_VERSION" != "$INSTALLED_VERSION" ] && [ ! -z "$LATEST_VERSION" ]; then
-    echo -e "\n New version ($LATEST_VERSION) found. Updating..."
-    URL=$(npm view $PACKAGE dist.tarball)
-    mkdir -p "$INSTALL_DIR"
-    wget -q --show-progress "$URL" -O /tmp/claude_update.tgz
-    tar -xzf $HOME/claude_update.tgz -C "$INSTALL_DIR" --strip-components=1
-    rm $HOME/claude_update.tgz
-    chmod +x "$BINARY_PATH"
-    echo "Update complete."
-    sleep 2
+if [ -n "$LATEST_VERSION" ] && [ "$LATEST_VERSION" != "$INSTALLED_VERSION" ]; then
+    printf '\nNew version (%s) found. Updating...\n' "$LATEST_VERSION"
+    URL=$(npm view "$PACKAGE" dist.tarball)
+    [ -n "$URL" ] || { printf 'Could not resolve update URL.\n' >&2; exit 1; }
+    TMP="$(mktemp -d)"
+    trap 'rm -rf "$TMP"' EXIT
+    curl -fSL --progress-bar "$URL" -o "$TMP/claude_update.tgz"
+    tar -xzf "$TMP/claude_update.tgz" -C "$INSTALL_DIR" --strip-components=1
+    chmod ug+x "$BINARY_PATH"
+    printf 'Update complete.\n'
 else
-    echo "Done (Already up to date)."
-    sleep 2
+    printf 'Done (already up to date).\n'
 fi
 
-glibc-runner /data/data/com.termux/files/usr/lib/node_modules/@anthropic-ai/claude-code-linux-arm64/claude
+exec glibc-runner "$BINARY_PATH" "$@"
 EOF
-echo -e "${YELLOW}Run with: ${BLUE}claude${NC}"
-echo -e "${YELLOW}Update checks are on.${NC}"
-}
-EOF
+chmod +x "$WRAPPER"
 
-echo -e "${GREEN}=== INSTALLATION COMPLETE ===${NC}"
-echo -e "Run: ${BLUE}source ~/.bashrc${NC} to activate."
-echo -e "Now, every time you type ${BLUE}claude${NC}, it will check for updates and run natively."
+ok "${GREEN}Installation complete.${NC}"
+printf '%s\n' "Run ${BLUE}claude${NC} — it will check for updates and run natively."
