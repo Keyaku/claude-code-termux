@@ -13,7 +13,7 @@ Then launch with `claude`. Each run checks npm for a newer native build and upda
 
 ```bash
 command -v curl &>/dev/null || pkg install -y curl
-curl -fsSL https://raw.githubusercontent.com/Keyaku/claude-code-termux/refs/heads/main/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Keyaku/claude-code-termux/refs/heads/main/uninstall.sh -o "$PREFIX/tmp/uninstall.sh" && bash "$PREFIX/tmp/uninstall.sh" && rm "$PREFIX/tmp/uninstall.sh"
 ```
 
 Removes the wrapper and prompts before touching the npm packages or user config.

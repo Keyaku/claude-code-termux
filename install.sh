@@ -24,24 +24,24 @@ info "Checking required Termux packages."
 REQUIRED_PKGS="glibc-repo glibc-runner npm curl tar"
 MISSING=""
 for p in $REQUIRED_PKGS; do
-    if ! dpkg -s "$p" >/dev/null 2>&1; then
-        MISSING="$MISSING $p"
-    fi
+	if ! dpkg -s "$p" >/dev/null 2>&1; then
+		MISSING="$MISSING $p"
+	fi
 done
 
 if [ -n "$MISSING" ]; then
-    info "Installing missing packages:${BLUE}${MISSING}${NC}"
-    pkg update -y
-    # shellcheck disable=SC2086
-    pkg install -y $MISSING
+	info "Installing missing packages:${BLUE}${MISSING}${NC}"
+	pkg update -y
+	# shellcheck disable=SC2086
+	pkg install -y $MISSING
 else
-    ok "All required packages already installed."
+	ok "All required packages already installed."
 fi
 
 # --- Step 2: install @anthropic-ai/claude-code from npm ---
 info "Installing ${BLUE}@anthropic-ai/claude-code${NC} via npm."
 npm -g i @anthropic-ai/claude-code --force \
-    || die "Could not install claude-code from npm. Check your internet connection."
+	|| die "Could not install claude-code from npm. Check your internet connection."
 
 # --- Step 3: fetch native arm64 binary ---
 info "Resolving native binary tarball URL."
@@ -57,7 +57,7 @@ trap 'rm -rf "$TMPDIR"' EXIT
 
 info "Downloading ${DIM}${URL}${NC}"
 curl -fSL --progress-bar "$URL" -o "$TMPDIR/claude-native.tgz" \
-    || die "Could not download native binary. Check your internet connection."
+	|| die "Could not download native binary. Check your internet connection."
 
 info "Extracting to ${BLUE}${INSTALL_DIR}${NC}"
 mkdir -p "$INSTALL_DIR"
@@ -80,31 +80,31 @@ PACKAGE_JSON="$INSTALL_DIR/package.json"
 BINARY_PATH="$INSTALL_DIR/claude"
 
 if [ ! -f "$BINARY_PATH" ]; then
-    printf 'Claude binary not found at %s\nPlease reinstall.\n' "$BINARY_PATH" >&2
-    exit 1
+	printf 'Claude binary not found at %s\nPlease reinstall.\n' "$BINARY_PATH" >&2
+	exit 1
 fi
 [ -x "$BINARY_PATH" ] || chmod ug+x "$BINARY_PATH"
 
 printf 'Checking for updates... '
 LATEST_VERSION=$(npm view "$PACKAGE" version 2>/dev/null || true)
 if [ -f "$PACKAGE_JSON" ]; then
-    INSTALLED_VERSION=$(grep '"version":' "$PACKAGE_JSON" | cut -d'"' -f4)
+	INSTALLED_VERSION=$(grep '"version":' "$PACKAGE_JSON" | cut -d'"' -f4)
 else
-    INSTALLED_VERSION=""
+	INSTALLED_VERSION=""
 fi
 
 if [ -n "$LATEST_VERSION" ] && [ "$LATEST_VERSION" != "$INSTALLED_VERSION" ]; then
-    printf '\nNew version (%s) found. Updating...\n' "$LATEST_VERSION"
-    URL=$(npm view "$PACKAGE" dist.tarball)
-    [ -n "$URL" ] || { printf 'Could not resolve update URL.\n' >&2; exit 1; }
-    TMP="$(mktemp -d)"
-    trap 'rm -rf "$TMP"' EXIT
-    curl -fSL --progress-bar "$URL" -o "$TMP/claude_update.tgz"
-    tar -xzf "$TMP/claude_update.tgz" -C "$INSTALL_DIR" --strip-components=1
-    chmod ug+x "$BINARY_PATH"
-    printf 'Update complete.\n'
+	printf '\nNew version (%s) found. Updating...\n' "$LATEST_VERSION"
+	URL=$(npm view "$PACKAGE" dist.tarball)
+	[ -n "$URL" ] || { printf 'Could not resolve update URL.\n' >&2; exit 1; }
+	TMP="$(mktemp -d)"
+	trap 'rm -rf "$TMP"' EXIT
+	curl -fSL --progress-bar "$URL" -o "$TMP/claude_update.tgz"
+	tar -xzf "$TMP/claude_update.tgz" -C "$INSTALL_DIR" --strip-components=1
+	chmod ug+x "$BINARY_PATH"
+	printf 'Update complete.\n'
 else
-    printf 'Done (already up to date).\n'
+	printf 'Done (already up to date).\n'
 fi
 
 exec glibc-runner "$BINARY_PATH" "$@"
