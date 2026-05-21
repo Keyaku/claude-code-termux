@@ -43,7 +43,7 @@ confirm() {
 
 WRAPPER="$TERMUX__PREFIX/bin/claude"
 PACKAGE="@anthropic-ai/claude-code-linux-arm64"
-NPM_PACKAGE="@anthropic-ai/claude-code"
+INSTALL_DIR="$TERMUX__PREFIX/share/claude-code-native"
 
 # --- Step 1: remove wrapper ---
 if [ -f "$WRAPPER" ] || [ -L "$WRAPPER" ]; then
@@ -58,29 +58,17 @@ else
 	info "No wrapper found at ${WRAPPER}."
 fi
 
-# --- Step 2: native binary package ---
-if command -v npm >/dev/null 2>&1; then
-	NPM_ROOT="$(npm -g root 2>/dev/null || true)"
-	if [ -n "$NPM_ROOT" ] && [ -d "$NPM_ROOT/$PACKAGE" ]; then
-		if confirm "Remove native binary package at ${BLUE}${NPM_ROOT}/${PACKAGE}${NC}?" default-y; then
-			rm -rf "${NPM_ROOT:?}/$PACKAGE"
-			ok "Native binary package removed."
-		fi
-	fi
-
-	# --- Step 3: claude-code npm package ---
-	if npm -g ls --depth=0 "$NPM_PACKAGE" >/dev/null 2>&1; then
-		if confirm "Uninstall ${BLUE}${NPM_PACKAGE}${NC} from global npm?" default-y; then
-			npm -g uninstall "$NPM_PACKAGE" || warn "npm uninstall failed."
-		fi
-	else
-		info "${NPM_PACKAGE} is not installed globally."
+# --- Step 2: native binary directory ---
+if [ -d "$INSTALL_DIR" ]; then
+	if confirm "Remove native binary at ${BLUE}${INSTALL_DIR}${NC}?" default-y; then
+		rm -rf "${INSTALL_DIR:?}"
+		ok "Native binary removed."
 	fi
 else
-	warn "npm not found; skipping npm package cleanup."
+	info "No native binary directory at ${INSTALL_DIR}."
 fi
 
-# --- Step 4: user config/data (XDG first, then legacy ~/.claude) ---
+# --- Step 3: user config/data (XDG first, then legacy ~/.claude) ---
 CONFIG_DIR="${XDG_CONFIG_HOME:-${HOME:-}/.config}/claude"
 if [ ! -d "$CONFIG_DIR" ]; then
 	CONFIG_DIR="${HOME:-}/.claude"
@@ -94,10 +82,10 @@ if [ -n "$CONFIG_DIR" ] && [ -d "$CONFIG_DIR" ]; then
 	fi
 fi
 
-# --- Step 5: optional Termux packages ---
+# --- Step 4: optional Termux packages ---
 printf '\n'
 info "The following Termux packages were installed by this project but may be used elsewhere:"
-printf '    %s\n' "glibc-repo  glibc-runner"
-info "Run ${BLUE}pkg uninstall glibc-runner glibc-repo${NC} manually if you no longer need them."
+printf '    %s\n' "glibc-repo  glibc-runner  jq"
+info "Run ${BLUE}pkg uninstall${NC} on any you no longer need."
 
 ok "${GREEN}Uninstall complete.${NC}"

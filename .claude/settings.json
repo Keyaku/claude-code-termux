@@ -1,0 +1,15 @@
+{
+	"permissions": {
+		"allow": [
+			"Bash(rtk ls *)",
+			"Bash(rtk grep *)",
+			"Bash(rtk read *)",
+			"Bash(rtk git *)",
+			"Bash(rtk find *)",
+			"Bash(xargs -0 -I{} echo {})",
+			"Bash(git checkout *)",
+			"Bash(echo \"exit=$?\")",
+			"Bash(git rebase *)"
+		]
+	}
+}

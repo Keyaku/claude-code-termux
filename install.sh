@@ -19,12 +19,32 @@ die()   { warn "$*"; exit 1; }
 [ -d "$TERMUX__PREFIX/bin" ] || die "TERMUX__PREFIX ($TERMUX__PREFIX) does not look like a valid Termux prefix."
 command -v pkg >/dev/null 2>&1 || die "pkg not found. This script requires Termux."
 
+# Abstract package query across Termux's apt and pacman variants.
+# `pkg install` works in both; only the "is it installed?" check differs.
+if command -v dpkg >/dev/null 2>&1; then
+	pkg_installed() { dpkg -s "$1" >/dev/null 2>&1; }
+elif command -v pacman >/dev/null 2>&1; then
+	pkg_installed() { pacman -Qi "$1" >/dev/null 2>&1; }
+else
+	die "Neither dpkg nor pacman found; cannot query package state."
+fi
+
+PACKAGE="@anthropic-ai/claude-code-linux-arm64"
+META_URL="https://registry.npmjs.org/${PACKAGE}/latest"
+INSTALL_DIR="$TERMUX__PREFIX/share/claude-code-native"
+WRAPPER_URL="https://raw.githubusercontent.com/Keyaku/claude-code-termux/refs/heads/main/claude.sh"
+
 # --- Step 1: required packages ---
 info "Checking required Termux packages."
-REQUIRED_PKGS="glibc-repo glibc-runner npm curl tar"
+REQUIRED_PKGS="glibc-repo glibc-runner curl tar"
+# Only ensure jq is present if neither jq nor jaq is already installed.
+if ! command -v jq >/dev/null 2>&1 && ! command -v jaq >/dev/null 2>&1; then
+	REQUIRED_PKGS="$REQUIRED_PKGS jq"
+fi
+
 MISSING=""
 for p in $REQUIRED_PKGS; do
-	if ! dpkg -s "$p" >/dev/null 2>&1; then
+	if ! pkg_installed "$p"; then
 		MISSING="$MISSING $p"
 	fi
 done
@@ -38,20 +58,21 @@ else
 	ok "All required packages already installed."
 fi
 
-# --- Step 2: install @anthropic-ai/claude-code from npm ---
-info "Installing ${BLUE}@anthropic-ai/claude-code${NC} via npm."
-npm -g i @anthropic-ai/claude-code --force \
-	|| die "Could not install claude-code from npm. Check your internet connection."
+# Pick JSON parser at runtime (no shims).
+if command -v jq >/dev/null 2>&1; then
+	JSON=jq
+elif command -v jaq >/dev/null 2>&1; then
+	JSON=jaq
+else
+	die "Neither jq nor jaq found after package install."
+fi
 
-# --- Step 3: fetch native arm64 binary ---
-info "Resolving native binary tarball URL."
-URL=$(npm view @anthropic-ai/claude-code-linux-arm64 dist.tarball)
-[ -n "$URL" ] || die "Could not resolve tarball URL. Check your internet connection."
+# --- Step 2: fetch native arm64 binary ---
+info "Querying npm registry for latest ${BLUE}${PACKAGE}${NC}."
+META=$(curl -fsSL "$META_URL") || die "Could not reach npm registry. Check your internet connection."
+URL=$(printf '%s' "$META" | "$JSON" -r '.dist.tarball')
+[ -n "$URL" ] && [ "$URL" != "null" ] || die "Could not resolve tarball URL from registry response."
 
-NPM_ROOT="$(npm -g root)"
-[ -n "$NPM_ROOT" ] && [ -d "$NPM_ROOT" ] || die "Invalid npm global root: '${NPM_ROOT}'."
-
-INSTALL_DIR="$NPM_ROOT/@anthropic-ai/claude-code-linux-arm64"
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
 
@@ -63,52 +84,11 @@ info "Extracting to ${BLUE}${INSTALL_DIR}${NC}"
 mkdir -p "$INSTALL_DIR"
 tar -xzf "$TMPDIR/claude-native.tgz" -C "$INSTALL_DIR" --strip-components=1
 
-# --- Step 4: write wrapper ---
+# --- Step 3: fetch wrapper ---
 WRAPPER="$TERMUX__PREFIX/bin/claude"
-info "Writing wrapper script: ${BLUE}${WRAPPER}${NC}"
-cat > "$WRAPPER" << 'EOF'
-#!/usr/bin/env bash
-
-set -eu
-
-PACKAGE="@anthropic-ai/claude-code-linux-arm64"
-NPM_ROOT="$(npm -g root)"
-[ -n "$NPM_ROOT" ] && [ -d "$NPM_ROOT" ] || { printf 'Invalid npm global root.\n' >&2; exit 1; }
-
-INSTALL_DIR="$NPM_ROOT/$PACKAGE"
-PACKAGE_JSON="$INSTALL_DIR/package.json"
-BINARY_PATH="$INSTALL_DIR/claude"
-
-if [ ! -f "$BINARY_PATH" ]; then
-	printf 'Claude binary not found at %s\nPlease reinstall.\n' "$BINARY_PATH" >&2
-	exit 1
-fi
-[ -x "$BINARY_PATH" ] || chmod ug+x "$BINARY_PATH"
-
-printf 'Checking for updates... '
-LATEST_VERSION=$(npm view "$PACKAGE" version 2>/dev/null || true)
-if [ -f "$PACKAGE_JSON" ]; then
-	INSTALLED_VERSION=$(grep '"version":' "$PACKAGE_JSON" | cut -d'"' -f4)
-else
-	INSTALLED_VERSION=""
-fi
-
-if [ -n "$LATEST_VERSION" ] && [ "$LATEST_VERSION" != "$INSTALLED_VERSION" ]; then
-	printf '\nNew version (%s) found. Updating...\n' "$LATEST_VERSION"
-	URL=$(npm view "$PACKAGE" dist.tarball)
-	[ -n "$URL" ] || { printf 'Could not resolve update URL.\n' >&2; exit 1; }
-	TMP="$(mktemp -d)"
-	trap 'rm -rf "$TMP"' EXIT
-	curl -fSL --progress-bar "$URL" -o "$TMP/claude_update.tgz"
-	tar -xzf "$TMP/claude_update.tgz" -C "$INSTALL_DIR" --strip-components=1
-	chmod ug+x "$BINARY_PATH"
-	printf 'Update complete.\n'
-else
-	printf 'Done (already up to date).\n'
-fi
-
-glibc-runner "$BINARY_PATH" "$@"
-EOF
+info "Downloading wrapper script to ${BLUE}${WRAPPER}${NC}"
+curl -fsSL "$WRAPPER_URL" -o "$WRAPPER" \
+	|| die "Could not download wrapper from $WRAPPER_URL."
 chmod +x "$WRAPPER"
 
 ok "${GREEN}Installation complete.${NC}"
