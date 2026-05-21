@@ -19,6 +19,13 @@ die()   { warn "$*"; exit 1; }
 [ -d "$TERMUX__PREFIX/bin" ] || die "TERMUX__PREFIX ($TERMUX__PREFIX) does not look like a valid Termux prefix."
 command -v pkg >/dev/null 2>&1 || die "pkg not found. This script requires Termux."
 
+# The npm package and glibc-runner shim are arm64-only; bail early on anything else.
+ARCH="$(uname -m)"
+case "$ARCH" in
+	aarch64|arm64) ;;
+	*) die "Unsupported architecture: $ARCH. This project only supports arm64 Termux." ;;
+esac
+
 # Abstract package query across Termux's apt and pacman variants.
 # `pkg install` works in both; only the "is it installed?" check differs.
 if command -v dpkg >/dev/null 2>&1; then

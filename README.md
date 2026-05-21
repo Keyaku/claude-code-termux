@@ -1,6 +1,8 @@
 # claude-code-termux
 
-Install [Claude Code](https://www.anthropic.com/claude-code) natively on Termux (arm64).
+Install [Claude Code](https://www.anthropic.com/claude-code) natively on Termux.
+
+**arm64 only.** The npm package this pulls (`@anthropic-ai/claude-code-linux-arm64`) and the `glibc-runner` shim it relies on are both arm64-specific. The install and wrapper scripts will refuse to run on anything else.
 
 ```bash
 command -v curl &>/dev/null || pkg install -y curl

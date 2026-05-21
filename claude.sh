@@ -5,6 +5,12 @@ set -eu
 PACKAGE="@anthropic-ai/claude-code-linux-arm64"
 META_URL="https://registry.npmjs.org/${PACKAGE}/latest"
 
+ARCH="$(uname -m)"
+case "$ARCH" in
+	aarch64|arm64) ;;
+	*) printf 'Unsupported architecture: %s. This wrapper only supports arm64 Termux.\n' "$ARCH" >&2; exit 1 ;;
+esac
+
 INSTALL_DIR="${TERMUX__PREFIX:?TERMUX__PREFIX is not set}/share/claude-code-native"
 PACKAGE_JSON="$INSTALL_DIR/package.json"
 BINARY_PATH="$INSTALL_DIR/claude"

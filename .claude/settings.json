@@ -9,7 +9,9 @@
 			"Bash(xargs -0 -I{} echo {})",
 			"Bash(git checkout *)",
 			"Bash(echo \"exit=$?\")",
-			"Bash(git rebase *)"
+			"Bash(git rebase *)",
+			"Bash(rtk shellcheck *)",
+			"Bash(command -v *)"
 		]
 	}
 }
