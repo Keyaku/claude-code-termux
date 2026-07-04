@@ -49,16 +49,21 @@ if ! command -v jq >/dev/null 2>&1 && ! command -v jaq >/dev/null 2>&1; then
 	REQUIRED_PKGS="$REQUIRED_PKGS jq"
 fi
 
+MISISNG_REPO=0
 MISSING=""
 for p in $REQUIRED_PKGS; do
 	if ! pkg_installed "$p"; then
-		MISSING="$MISSING $p"
+		[ "$p" = "glibc-repo" ] && MISSING_REPO=1 || MISSING="$MISSING $p"
 	fi
 done
 
 if [ -n "$MISSING" ]; then
 	info "Installing missing packages:${BLUE}${MISSING}${NC}"
 	pkg update -y
+	if [ $MISSING_REPO -eq 1 ]; then
+		pkg install -y glibc-repo
+		pkg update
+	fi
 	# shellcheck disable=SC2086
 	pkg install -y $MISSING
 else
